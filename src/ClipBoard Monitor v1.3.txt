@@ -1,0 +1,60 @@
+<#
+.SYNOPSIS
+    Enhanced Clipboard Monitor with Empty-State Detection
+
+.DESCRIPTION
+    Monitors clipboard for:
+    - Text changes (including numbers)
+    - When clipboard is cleared/emptied
+    - Non-text content (with notification)
+#>
+
+Add-Type -AssemblyName System.Windows.Forms
+
+$lastContent = "[NULL]"
+$emptyWarningShown = $false
+
+Write-Host "Clipboard Monitor Started (ESC to stop)`n" -ForegroundColor Green
+Write-Host "[•] Current clipboard state: " -NoNewline
+
+# Initial state check
+if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+    $lastContent = [System.Windows.Forms.Clipboard]::GetText()
+    Write-Host "Contains text: `"$lastContent`"" -ForegroundColor Cyan
+}
+else {
+    Write-Host "Empty or contains non-text data" -ForegroundColor DarkGray
+}
+
+while ($true) {
+    # ESC key check
+    if ($Host.UI.RawUI.KeyAvailable -and ($Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown").VirtualKeyCode -eq 27)) {
+        Write-Host "`n[!] Monitoring stopped by user" -ForegroundColor Yellow
+        break
+    }
+
+    $timestamp = Get-Date -Format "HH:mm:ss"
+    $currentState = $null
+
+    if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+        $currentContent = [System.Windows.Forms.Clipboard]::GetText()
+        
+        # Numeric check (doesn't affect functionality, just for info)
+        $contentType = if ($currentContent -match '^-?\d+\.?\d*$') { "numeric" } else { "text" }
+
+        if ($currentContent -ne $lastContent) {
+            Write-Host "[$timestamp] New $contentType content: `"$currentContent`"" -ForegroundColor Cyan
+            $lastContent = $currentContent
+            $emptyWarningShown = $false
+        }
+    }
+    else {
+        if (-not $emptyWarningShown -or $lastContent -ne "[NULL]") {
+            Write-Host "[$timestamp] Clipboard emptied or contains non-text data" -ForegroundColor DarkGray
+            $emptyWarningShown = $true
+            $lastContent = "[NULL]"
+        }
+    }
+
+    Start-Sleep -Milliseconds 500
+}
