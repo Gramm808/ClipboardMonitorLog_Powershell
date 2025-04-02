@@ -1,0 +1,100 @@
+<#
+.SYNOPSIS
+    Fixed Clipboard Monitor with Daily Logging
+
+.DESCRIPTION
+    Corrected version that properly detects all clipboard changes
+    and logs to: %USERPROFILE%\Documents\ClipboardLogs\clipboard_YYYY-MM-DD.txt
+#>
+
+Add-Type -AssemblyName System.Windows.Forms
+
+# Configuration
+$logDir = "$env:USERPROFILE\Documents\ClipboardLogs"
+$logDate = Get-Date -Format "yyyy-MM-dd"
+$logPath = "$logDir\clipboard_$logDate.txt"
+$maxTextLength = 250
+
+# Initialize logging directory
+if (-not (Test-Path $logDir)) { 
+    New-Item -ItemType Directory -Path $logDir | Out-Null
+    Write-Host "Created log directory: $logDir" -ForegroundColor Yellow
+}
+
+# Start new log file
+"[=== Clipboard Monitoring Started $(Get-Date -Format "yyyy-MM-dd HH:mm:ss") ===]" | Out-File -FilePath $logPath
+"PID: $PID | User: $env:USERNAME" | Out-File -FilePath $logPath -Append
+"" | Out-File -FilePath $logPath -Append
+
+# Main monitoring function
+function Monitor-Clipboard {
+    $lastContent = $null
+    $lastFormat = $null
+
+    Write-Host "Clipboard Monitor Active (Logging to $logPath)" -ForegroundColor Green
+    Write-Host "Press ESC to stop..." -ForegroundColor DarkGray
+
+    while ($true) {
+        # Check for ESC key
+        if ($Host.UI.RawUI.KeyAvailable -and ($Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown").VirtualKeyCode -eq 27)) {
+            Write-Host "`nStopping monitor..." -ForegroundColor Yellow
+            "[=== Monitoring Stopped $(Get-Date -Format "yyyy-MM-dd HH:mm:ss") ===]" | Out-File -FilePath $logPath -Append
+            break
+        }
+
+        # Check for new day
+        $currentDate = Get-Date -Format "yyyy-MM-dd"
+        if ($currentDate -ne $logDate) {
+            $logDate = $currentDate
+            $logPath = "$logDir\clipboard_$logDate.txt"
+            "[=== New Log Started $(Get-Date -Format "yyyy-MM-dd HH:mm:ss") ===]" | Out-File -FilePath $logPath
+        }
+
+        # Get current clipboard data
+        $currentData = [System.Windows.Forms.Clipboard]::GetDataObject()
+        
+        if ($currentData -ne $null) {
+            # Check for text first
+            if ($currentData.GetDataPresent([Windows.Forms.DataFormats]::Text)) {
+                $currentContent = $currentData.GetData([Windows.Forms.DataFormats]::Text)
+                $contentType = if ($currentContent -match '^-?\d+\.?\d*$') { "NUMBER" } else { "TEXT" }
+                
+                if ($currentContent -ne $lastContent) {
+                    $displayContent = if ($currentContent.Length -gt $maxTextLength) {
+                        $currentContent.Substring(0, $maxTextLength) + "...[TRUNCATED]"
+                    } else { $currentContent }
+                    
+                    $logEntry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $contentType`: $displayContent"
+                    
+                    # Output to console and log
+                    Write-Host $logEntry -ForegroundColor Cyan
+                    $logEntry | Out-File -FilePath $logPath -Append
+                    
+                    $lastContent = $currentContent
+                }
+            }
+            elseif (-not [string]::IsNullOrEmpty($lastContent)) {
+                # Non-text content detected
+                $logEntry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] NON-TEXT: (Image/File/Other)"
+                Write-Host $logEntry -ForegroundColor DarkGray
+                $logEntry | Out-File -FilePath $logPath -Append
+                $lastContent = $null
+            }
+        }
+        else {
+            # Clipboard empty
+            if (-not [string]::IsNullOrEmpty($lastContent)) {
+                $logEntry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] EMPTY: (Clipboard cleared)"
+                Write-Host $logEntry -ForegroundColor DarkGray
+                $logEntry | Out-File -FilePath $logPath -Append
+                $lastContent = $null
+            }
+        }
+
+        Start-Sleep -Milliseconds 300
+    }
+}
+
+# Start monitoring
+Monitor-Clipboard
+Write-Host "Log file saved to: $logPath" -ForegroundColor Green
